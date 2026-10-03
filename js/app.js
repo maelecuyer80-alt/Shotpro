@@ -7,8 +7,9 @@ import { evaluateBadges, badgeKey, BADGES } from './badges.js';
 import { store, save, askPersistence, syncPending, testSheet } from './store.js';
 import { unlock, sfx, say } from './audio.js';
 import { startCamera, stopCamera, frameLoop, videoRect, listCameras, keepAwake } from './camera.js';
+import { createRimAuto } from './rimauto.js';
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -74,54 +75,125 @@ document.addEventListener('click', e => {
 
 // ======================= accueil =======================
 function volText(e) { return e.seconds ? `${e.series} × ${e.seconds >= 120 ? e.seconds / 60 + ' min' : e.seconds + ' s'}` : `${e.series} × ${e.per}`; }
+// durée estimée d'une séance (≈ 6 s par tir, plus les repos)
+function estMinutes(exs) {
+  let sec = 0; const rest = S_().rest || 45;
+  for (const e of exs) { const n = e.series || 1; sec += e.seconds ? n * e.seconds : n * (e.per || 10) * 6; sec += Math.max(0, n - 1) * rest + 60; }
+  return Math.max(5, Math.round(sec / 300) * 5);
+}
+const DAY = 864e5;
+const isoDay = d => new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+function weekStart(d = new Date()) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+// semaines d'affilée où l'objectif a été tenu (la semaine en cours compte si elle est déjà tenue)
+function weekStreak() {
+  const goal = S_().weeklyGoal || 3, days = new Set(store.state.sessions.map(s => s.date));
+  const countWeek = ws => { let n = 0; for (let i = 0; i < 7; i++) if (days.has(isoDay(new Date(ws.getTime() + i * DAY)))) n++; return n; };
+  let ws = weekStart(), streak = 0;
+  if (countWeek(ws) >= goal) streak++;
+  for (let k = 0; k < 104; k++) { ws = new Date(ws.getTime() - 7 * DAY); if (countWeek(ws) >= goal) streak++; else break; }
+  return streak;
+}
+const FLAME = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2c1 4-3 5.5-3 9.5A3 3 0 0 0 12 15a3 3 0 0 0 3-3.2c0-1.3-.6-2.3-1.2-3.1C16.9 9.9 19 12.6 19 15.5A7 7 0 0 1 5 15.5C5 10 10.5 7.5 12 2z"/></svg>';
+
 function renderHome() {
   const draft = store.state.draft;
   $('#resumeCard').hidden = !draft;
   if (draft) {
     const ex = draft.exercises[draft.ei];
-    $('#resumeTitle').textContent = `S${draft.week} · séance ${draft.seance} — ${ex ? ex.name : ''}, série ${draft.si + 1}`;
+    $('#resumeTitle').textContent = `${draft.week ? `S${draft.week} · séance ${draft.seance}` : draft.title} — ${ex ? ex.name : ''}, série ${draft.si + 1}`;
   }
   const nx = nextSlot();
   if (!sel) sel = nx || { week: 1, seance: 1 };
   const P = PROGRAM[sel.week];
-  const done = sessionsOfCycle(cycleNo()).find(s => s.week === sel.week && s.seance === sel.seance);
-  $('#nextEyebrow').textContent = nx && nx.week === sel.week && nx.seance === sel.seance ? 'Prochaine séance' : done ? 'Séance déjà faite (tu peux la refaire)' : 'Séance choisie';
-  $('#nextTitle').textContent = `Semaine ${sel.week} · Séance ${sel.seance}`;
-  $('#nextTheme').textContent = `${P.theme}. ${P.goal}`;
-  $('#nextList').innerHTML = P.ex.map(e => `<li><b>${esc(e.name)}</b><span class="vol">${volText(e)}</span></li>`).join('');
-  $('#cycleNo').textContent = cycleNo();
-  $('#newCycle').hidden = !!nx;
   const cyc = sessionsOfCycle(cycleNo());
+  const done = cyc.find(s => s.week === sel.week && s.seance === sel.seance);
+  const trainedToday = store.state.sessions.some(s => s.date === today());
+  $('#nextEyebrow').textContent = nx && nx.week === sel.week && nx.seance === sel.seance ? (trainedToday ? 'Prochaine séance' : 'Séance du jour') : done ? 'Séance déjà faite · à refaire' : 'Séance choisie';
+  $('#nextTitle').textContent = `Semaine ${sel.week} · Séance ${sel.seance}`;
+  $('#nextTime').textContent = `≈ ${estMinutes(P.ex)} min`;
+  $('#nextTheme').textContent = P.theme;
+  const shots = P.ex.reduce((n, e) => n + (e.per ? e.per * e.series : 0), 0);
+  $('#nextChips').innerHTML = [`${P.ex.length} exercices`, shots ? `${shots} tirs` : null, P.ex.some(e => e.seconds) ? 'chrono' : null].filter(Boolean).map(t => `<span>${t}</span>`).join('');
+  $('#nextList').innerHTML = P.ex.map(e => `<li><b>${esc(e.name)}</b><span class="vol">${volText(e)}</span></li>`).join('') + `<li class="goalline">${esc(P.goal)}</li>`;
+  // objectif chiffré : battre la même séance, sinon la dernière séance du programme
+  const prog = store.state.sessions.filter(s => s.type === 'program' || (!s.type && s.week)).sort((a, b) => b.startedAt - a.startedAt);
+  const ref = prog.find(s => s.week === sel.week && s.seance === sel.seance) || prog[0];
+  const rs = ref ? sessStats(ref) : null;
+  $('#nextGoal').hidden = !(rs && rs.att);
+  if (rs && rs.att) $('#nextGoal').innerHTML = `<span>À battre</span><b>${num(rs.pct, 0)} %</b><small>${ref.week === sel.week && ref.seance === sel.seance ? 'ton score sur cette séance' : 'ta dernière séance'}</small>`;
+
+  // ---- semaine : objectif, jours, série ----
+  const goal = S_().weeklyGoal || 3, ws = weekStart(), days = new Set(store.state.sessions.map(s => s.date));
+  const dayNames = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+  let nWeek = 0, dots = '';
+  for (let i = 0; i < 7; i++) { const d = isoDay(new Date(ws.getTime() + i * DAY)), on = days.has(d); if (on) nWeek++; dots += `<div class="dd ${on ? 'on' : ''} ${d === today() ? 'today' : ''}"><i></i><small>${dayNames[i]}</small></div>`; }
+  const streak = weekStreak(), pctW = Math.min(1, nWeek / goal), C = 2 * Math.PI * 26;
+  $('#weekCard').innerHTML = `<div class="wk-ring"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" class="tr"/><circle cx="32" cy="32" r="26" class="pr" style="stroke-dasharray:${C};stroke-dashoffset:${C * (1 - pctW)}"/></svg><div><b>${nWeek}</b><small>/${goal}</small></div></div>
+    <div class="wk-main"><div class="row between"><div class="h3">Ta semaine</div>${streak ? `<span class="streak">${FLAME}${streak} sem.</span>` : ''}</div>
+    <div class="days">${dots}</div>
+    <div class="wk-msg">${nWeek >= goal ? 'Objectif de la semaine tenu. Chaque séance en plus, c\'est du bonus.' : nWeek === goal - 1 ? 'Plus qu\'une séance pour tenir ton objectif.' : `Objectif : ${goal} séances cette semaine.`} <button class="link" id="planBtn">Planifier mes rappels</button></div></div>`;
+
+  // ---- défi du jour + badge le plus proche ----
+  const bl = evaluateBadges(store.state.sessions), got = bl.filter(b => b.level >= 0);
+  const near = bl.filter(b => b.next != null && b.progress < 1).sort((a, b) => b.progress - a.progress);
+  const doy = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / DAY);
+  const ch = PRO_DRILLS[doy % PRO_DRILLS.length];
+  const nb = near[0];
+  $('#challengeCard').hidden = false;
+  $('#challengeCard').innerHTML = `<div class="eyebrow">Défi du jour</div><div class="h2">${esc(ch.name)}</div><p class="muted">${esc(ch.desc)}</p>
+    <div class="row gap wrap"><button class="btn primary" data-pro-home="${ch.id}" data-mode="${ch.camera === false ? 'manual' : 'camera'}">Relever le défi</button><button class="link" data-go="pro">Tous les défis</button></div>
+    ${nb ? `<div class="nextbadge"><div class="medal ${nb.tierName || 'locked'}"><span>${esc(nb.icon)}</span></div><div><small>Prochain badge</small><b>${esc(nb.name)}</b><div class="bar"><i style="width:${Math.round(nb.progress * 100)}%"></i></div><small>${fmtVal(nb, nb.v)} / ${fmtVal(nb, nb.next)} · ${esc(nb.desc)}</small></div></div>` : ''}`;
+
+  // ---- installation sur l'écran d'accueil ----
+  const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  $('#installCard').hidden = standalone || !!S_().installDismissed;
+
+  // ---- chiffres des 7 derniers jours ----
+  const all = store.state.sessions.filter(s => s.type !== 'dribble');
+  const since = (a, b) => all.filter(s => s.startedAt >= Date.now() - a * DAY && s.startedAt < Date.now() - b * DAY);
+  const agg = list => exStats({ series: list.flatMap(s => s.exercises.flatMap(e => e.series)) });
+  const w1 = agg(since(7, 0)), w0 = agg(since(14, 7));
+  if (!all.length) {
+    $('#quickStats').innerHTML = `<div class="h3">Tes chiffres</div><p class="muted">Après ta première séance : ton pourcentage, ton angle d'entrée et ta progression semaine après semaine.</p>`;
+  } else if (!w1.att) {
+    const last = [...all].sort((a, b) => b.startedAt - a.startedAt)[0], st = sessStats(last);
+    $('#quickStats').innerHTML = `<div class="row between"><div class="h3">Dernière séance · ${frDate(last.date)}</div><button class="link" data-go="progress">Progrès</button></div>
+      <div class="kpis"><div class="kpi"><div class="v">${num(st.pct, 0)}%</div><div class="k">Réussite</div></div><div class="kpi"><div class="v">${st.angle == null ? '–' : num(st.angle, 0) + '°'}</div><div class="k">Angle</div></div><div class="kpi"><div class="v">${st.att}</div><div class="k">Tirs</div></div></div>`;
+  } else {
+    const d = w0.att && w1.pct != null && w0.pct != null ? w1.pct - w0.pct : null;
+    const delta = d == null ? '' : `<span class="delta ${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'} ${num(Math.abs(d), 0)}</span>`;
+    $('#quickStats').innerHTML = `<div class="row between"><div class="h3">7 derniers jours</div><button class="link" data-go="progress">Progrès</button></div>
+      <div class="kpis"><div class="kpi"><div class="v">${num(w1.pct, 0)}%${delta}</div><div class="k">Réussite</div></div><div class="kpi"><div class="v">${w1.angle == null ? '–' : num(w1.angle, 0) + '°'}</div><div class="k">Angle d'entrée</div></div><div class="kpi"><div class="v">${w1.att}</div><div class="k">Tirs</div></div></div>`;
+  }
+
+  // ---- programme (replié) ----
+  $('#cycleNo').textContent = cycleNo();
+  $('#cycleSum').textContent = `${new Set(cyc.map(s => s.week + '-' + s.seance)).size}/12 séances`;
+  $('#newCycle').hidden = !!nx;
   let g = '';
   for (let w = 1; w <= 4; w++) {
     g += `<div class="wk">Sem. ${w}</div>`;
     for (let n = 1; n <= 3; n++) {
-      const s = cyc.filter(x => x.week === w && x.seance === n).pop();
-      const st = s ? sessStats(s) : null;
-      g += `<button data-w="${w}" data-n="${n}" class="${s ? 'done' : ''} ${sel.week === w && sel.seance === n ? 'sel' : ''}"><b>${s ? num(st.pct, 0) + '%' : n}</b>${s ? 'séance ' + n : 'à faire'}</button>`;
+      const s2 = cyc.filter(x => x.week === w && x.seance === n).pop();
+      const st = s2 ? sessStats(s2) : null;
+      g += `<button data-w="${w}" data-n="${n}" class="${s2 ? 'done' : ''} ${sel.week === w && sel.seance === n ? 'sel' : ''}"><b>${s2 ? num(st.pct, 0) + '%' : n}</b>${s2 ? 'séance ' + n : 'à faire'}</button>`;
     }
   }
   $('#weekGrid').innerHTML = g;
-  // stats rapides
-  const all = store.state.sessions.filter(s => s.type !== 'dribble');
-  const bl = evaluateBadges(store.state.sessions), got = bl.filter(b => b.level >= 0);
-  const near = bl.filter(b => b.next != null).sort((a, b) => b.progress - a.progress).slice(0, 3);
-  $('#homeBadges').innerHTML = `<div class="row between"><div class="h3">Badges · ${got.length}/${bl.length}</div><button class="link" data-go="badges">Tout voir</button></div><div class="badges compact">${near.map(badgeHTML).join('')}</div>`;
-  if (!all.length) {
-    $('#quickStats').innerHTML = `<div class="h3">Tes chiffres</div><p class="muted">Ta première séance enregistrée affichera ici ton pourcentage, ton angle d'entrée moyen et ta régularité.</p>`;
-  } else {
-    const last = [...all].sort((a, b) => b.startedAt - a.startedAt)[0];
-    const st = sessStats(last);
-    $('#quickStats').innerHTML = `<div class="h3">Dernière séance · ${frDate(last.date)}</div>
-      <div class="kpis"><div class="kpi"><div class="v">${num(st.pct)}%</div><div class="k">Réussite</div></div>
-      <div class="kpi"><div class="v">${st.angle == null ? '–' : num(st.angle) + '°'}</div><div class="k">Angle d'entrée</div></div>
-      <div class="kpi"><div class="v">${st.att}</div><div class="k">Tirs</div></div></div>`;
-  }
+  $('#homeBadges').innerHTML = `<div class="row between"><div class="h3">Badges · ${got.length}/${bl.length}</div><button class="link" data-go="badges">Tout voir</button></div><div class="badges compact">${near.slice(1, 3).map(badgeHTML).join('')}</div>`;
+  $('#homeBadges').hidden = near.length < 2;
   renderSync();
 }
+$('#toggleList').addEventListener('click', () => { const l = $('#nextList'); l.hidden = !l.hidden; $('#toggleList').textContent = l.hidden ? 'Voir le détail' : 'Masquer le détail'; });
+$('#installClose').addEventListener('click', () => { store.setSetting('installDismissed', true); $('#installCard').hidden = true; });
+$('#v-home').addEventListener('click', e => {
+  const b = e.target.closest('[data-pro-home]');
+  if (b) { unlock(); const d = PRO_DRILLS.find(x => x.id === b.dataset.proHome); beginCustom(makeSession('pro', d.name, d.exercises, b.dataset.mode, { drill: d.id })); return; }
+  if (e.target.closest('#planBtn')) { go('settings'); setTimeout(() => $('#remindCard').scrollIntoView({ behavior: 'smooth' }), 50); }
+});
 $('#weekGrid').addEventListener('click', e => {
   const b = e.target.closest('button[data-w]'); if (!b) return;
-  sel = { week: +b.dataset.w, seance: +b.dataset.n }; renderHome();
+  sel = { week: +b.dataset.w, seance: +b.dataset.n }; renderHome(); window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 $('#newCycle').addEventListener('click', () => { store.setSetting('cycle', cycleNo() + 1); sel = null; renderHome(); toast(`Cycle ${cycleNo()} commencé`); });
 $('#startCam').addEventListener('click', () => { unlock(); beginSession('camera'); });
@@ -183,6 +255,7 @@ async function ensureCamera() {
   stopLoop = frameLoop(video, (img, t) => {
     clipRec.tick();
     if (processor === 'dribble') { const o = dtracker.process(img, t); if (showMask) buildMask(img.width, img.height, dtracker); if (analysisHandler) analysisHandler(img, t, o); return; }
+    if (source.kind === 'camera' && (setupState.active || (S && S.mode === 'camera' && phase !== 'idle'))) feedRimAuto(img, t);
     const out = tracker.process(img, t);
     if (out.ball && (out.inShot || setupState.active)) { lastBall = out.ball; lastBallT = performance.now(); }
     if (showMask) buildMask(img.width, img.height);
@@ -212,15 +285,44 @@ function drawOverlay() {
   const W = overlay.clientWidth, H = overlay.clientHeight;
   if (overlay.width !== W * dpr || overlay.height !== H * dpr) { overlay.width = W * dpr; overlay.height = H * dpr; }
   octx.setTransform(dpr, 0, 0, dpr, 0, 0); octx.clearRect(0, 0, W, H);
+  const rh = $('#rotateHint'), wantRot = camOn && processor === 'shot' && source.kind === 'camera' && H > W * 1.1;
+  if (rh.hidden === wantRot) rh.hidden = !wantRot;
   if (!camOn) return;
   const R = videoRect(video), ox = R.left - R.el.left, oy = R.top - R.el.top;
   const P = (x, y) => [ox + x * R.width, oy + y * R.height];
   if (showMask && maskImg) { octx.globalAlpha = 0.85; octx.drawImage(maskImg, ox, oy, R.width, R.height); octx.globalAlpha = 1; }
-  const rim = setupState.active && setupState.step === 'rim' ? handlesRim() : (store.state.calib && store.state.calib.rim);
+  const st = setupState;
+  const rim = st.active ? (st.step === 'manual' ? handlesRim() : (st.rim || st.saved)) : (store.state.calib && store.state.calib.rim);
+  const tNow = performance.now();
+  if (st.active && st.step === 'scan' && !st.rim) {
+    // balayage pendant la recherche
+    const k = (tNow % 2400) / 2400, yy = oy + (0.08 + 0.7 * k) * R.height;
+    const g = octx.createLinearGradient(0, yy - 40, 0, yy);
+    g.addColorStop(0, 'rgba(240,126,51,0)'); g.addColorStop(1, 'rgba(240,126,51,.35)');
+    octx.fillStyle = g; octx.fillRect(0, yy - 40, W, 40);
+    octx.fillStyle = 'rgba(240,126,51,.8)'; octx.fillRect(0, yy, W, 2);
+    // candidats en cours d'examen
+    octx.strokeStyle = 'rgba(255,255,255,.45)'; octx.lineWidth = 1.5; octx.setLineDash([4, 4]);
+    for (const c of rimAuto.candidates.slice(0, 3)) { const [a, b] = P(c.xl, c.y), [e] = P(c.xr, c.y); octx.strokeRect(a - 4, b - (e - a) * 0.25, e - a + 8, (e - a) * 0.6); }
+    octx.setLineDash([]);
+  }
   if (rim) {
-    const [x1, y1] = P(rim.xl, rim.y), [x2] = P(rim.xr, rim.y);
-    octx.strokeStyle = '#F07E33'; octx.lineWidth = 3; octx.beginPath(); octx.moveTo(x1, y1); octx.lineTo(x2, y1); octx.stroke();
-    octx.lineWidth = 2; octx.beginPath(); octx.moveTo(x1, y1 - 8); octx.lineTo(x1, y1 + 8); octx.moveTo(x2, y1 - 8); octx.lineTo(x2, y1 + 8); octx.stroke();
+    const [x1, y1] = P(rim.xl, rim.y), [x2] = P(rim.xr, rim.y), w = x2 - x1, cx = (x1 + x2) / 2;
+    const provisional = st.active && st.step === 'scan' && !st.rim;
+    octx.save();
+    if (provisional) { octx.globalAlpha = 0.6; octx.setLineDash([6, 5]); }
+    octx.shadowColor = 'rgba(240,126,51,.9)'; octx.shadowBlur = provisional ? 0 : 12;
+    octx.strokeStyle = '#F07E33'; octx.lineWidth = 3;
+    octx.beginPath(); octx.ellipse(cx, y1, w / 2, Math.max(3, w * 0.12), 0, 0, Math.PI * 2); octx.stroke();
+    if (st.active && st.step === 'scan') {
+      // cadre « verrouillé » aux coins
+      const pad = Math.max(10, w * 0.25), L = Math.max(8, w * 0.2), bx = x1 - pad, by = y1 - pad, bw = w + 2 * pad, bh = 2 * pad;
+      octx.lineWidth = 3; octx.shadowBlur = 0; octx.setLineDash([]);
+      octx.beginPath();
+      for (const [px, py, dx, dy] of [[bx, by, 1, 1], [bx + bw, by, -1, 1], [bx, by + bh, 1, -1], [bx + bw, by + bh, -1, -1]]) { octx.moveTo(px + dx * L, py); octx.lineTo(px, py); octx.lineTo(px, py + dy * L); }
+      octx.stroke();
+    }
+    octx.restore();
   }
   const now = performance.now();
   if (lastShotPath && now - lastShotT < 4000) {
@@ -243,72 +345,150 @@ document.addEventListener('visibilitychange', async () => {
   try { closeCamera(); await ensureCamera(); tracker.reset(); applyTrackerSettings(); } catch (e) { toast('Caméra indisponible : ' + e.message); }
 });
 
-// ======================= réglage caméra =======================
-const setupState = { active: false, step: 'frame', mode: 'full', after: null, hl: { x: 0.62, y: 0.45 }, hr: { x: 0.72, y: 0.45 }, samples: [], sampling: null, ball: null, test: { n: 0, m: 0 } };
+// ======================= réglage caméra : calage automatique =======================
+// Le joueur pose le téléphone (caméra avant ou arrière), l'appli trouve le cercle toute seule
+// (couleur + forme + filet + panneau), puis les premiers tirs confirment ou corrigent la position.
+// Les poignées manuelles ne servent plus qu'en secours.
+const rimAuto = createRimAuto();
+const scanCv = document.createElement('canvas'); let scanCtx = null, scanTick = 0, fileScanTimer = null;
+function grabScan() {
+  const vw = video.videoWidth, vh = video.videoHeight; if (!vw || !vh) return null;
+  const k = 640 / Math.max(vw, vh), w = Math.round(vw * k), h = Math.round(vh * k);
+  if (scanCv.width !== w || scanCv.height !== h) { scanCv.width = w; scanCv.height = h; scanCtx = scanCv.getContext('2d', { willReadFrequently: true }); }
+  try { scanCtx.drawImage(video, 0, 0, w, h); return scanCtx.getImageData(0, 0, w, h); } catch (e) { return null; }
+}
+// appelé à chaque image d'analyse (caméra) : suivi du ballon pour les tirs + analyse d'image 1 fois sur 3
+function feedRimAuto(img, t) {
+  rimAuto.addTrackFrame(img, t);
+  if (++scanTick % 3 === 0) { const g = grabScan(); if (g) rimAuto.addScanFrame(g); }
+  if (!rimAuto.takeChange()) return;
+  const rim = rimAuto.rim; if (!rim) return;
+  if (setupState.active) onRimFound(rim, rimAuto.source);
+  else if (S && S.mode === 'camera') {
+    // en séance : le panier a été recalé (premiers tirs, ou téléphone déplacé)
+    const old = store.state.calib && store.state.calib.rim;
+    tracker.setRim(rim); tracker.softReset(); saveCalib(rim, rimAuto.source);
+    if (old && (Math.abs((old.xl + old.xr) / 2 - (rim.xl + rim.xr) / 2) > 0.5 * (rim.xr - rim.xl) || Math.abs(old.y - rim.y) > 0.04)) toast('Panier recalé automatiquement');
+  }
+}
+function saveCalib(rim, src) {
+  const c = store.state.calib || {};
+  store.setCalib({ rim: { xl: rim.xl, xr: rim.xr, y: rim.y }, ball: c.ball || null, aspect: video.videoWidth / video.videoHeight, facing: source.facing, deviceId: camInfo && camInfo.deviceId, savedAt: Date.now(), auto: src || 'main', fromFile: source.kind === 'file' });
+}
+
+const setupState = { active: false, step: 'scan', mode: 'full', after: null, hl: { x: 0.62, y: 0.45 }, hr: { x: 0.72, y: 0.45 }, rim: null, src: null, startedAt: 0, goAt: 0, announced: false, shots: 0, made: 0, saved: null };
 function handlesRim() { const a = setupState.hl, b = setupState.hr; return { xl: Math.min(a.x, b.x), xr: Math.max(a.x, b.x), y: (a.y + b.y) / 2 }; }
+const isMirror = () => source.kind === 'camera' && source.facing === 'user';
+// coordonnées image (0–1) <-> écran, en tenant compte du plein écran et du miroir de la caméra avant
+function toScreen(x, y) { const R = videoRect(video); return [R.left + (isMirror() ? 1 - x : x) * R.width, R.top + y * R.height]; }
+function fromScreen(cx, cy) { const R = videoRect(video); let x = (cx - R.left) / R.width; if (isMirror()) x = 1 - x; return [x, (cy - R.top) / R.height]; }
 
 async function openSetup(after, mode = 'full') {
-  Object.assign(setupState, { active: true, after, mode, step: mode === 'check' ? 'check' : mode === 'file' ? 'rim' : 'frame', samples: [], sampling: null, test: { n: 0, m: 0 } });
-  const c = store.state.calib;
-  setupState.ball = c && c.ball ? c.ball : null;
-  if (c) { setupState.hl = { x: c.rim.xl, y: c.rim.y }; setupState.hr = { x: c.rim.xr, y: c.rim.y }; }
+  Object.assign(setupState, { active: true, after, mode, step: 'scan', rim: null, src: null, startedAt: performance.now(), goAt: 0, announced: false, shots: 0, made: 0, saved: null });
   $('#stage').hidden = false; $('#setupUI').hidden = false; $('#liveUI').hidden = true;
   $('#stage').classList.remove('manual-mode');
   try { await ensureCamera(); }
-  catch (e) { closeSetup(); toast("Caméra refusée ou indisponible. Autorise l'accès à la caméra pour Safari dans Réglages > Safari > Caméra.", 6000); return; }
-  if (c && mode === 'check' && Math.abs(c.aspect - video.videoWidth / video.videoHeight) > 0.03) {
-    setupState.step = 'frame'; toast("L'orientation du téléphone a changé : refais le réglage.");
-  }
-  const cams = await listCameras();
+  catch (e) { closeSetup(); $('#stage').hidden = true; toast("Caméra refusée ou indisponible. Autorise l'accès à la caméra pour Safari dans Réglages > Safari > Caméra.", 6000); go('home'); return; }
+  rimAuto.reset(); scanTick = 0; tracker.reset(); applyTrackerSettings();
+  tracker.setRim(null);
+  // dernier réglage : proposé tout de suite s'il correspond à la même caméra, l'analyse le confirme ou le corrige
+  const c = store.state.calib;
+  if (c && c.rim && !c.fromFile && source.kind === 'camera' && (c.facing || 'environment') === source.facing && Math.abs((c.aspect || 0) - video.videoWidth / video.videoHeight) < 0.03) setupState.saved = c.rim;
+  const r0 = setupState.saved || { xl: 0.62, xr: 0.72, y: 0.45 };
+  setupState.hl = { x: r0.xl, y: r0.y }; setupState.hr = { x: r0.xr, y: r0.y };
+  // objectifs (arrière) : ultra grand-angle utile si tout ne rentre pas
   const sel = $('#camSelect');
-  sel.innerHTML = cams.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || 'Caméra ' + (i + 1))}</option>`).join('');
-  sel.value = camInfo.deviceId || '';
-  applyTrackerSettings();
+  if (source.kind === 'camera' && source.facing !== 'user') {
+    const cams = (await listCameras()).filter(d => !/front|avant|user|facetime/i.test(d.label || ''));
+    sel.innerHTML = cams.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || 'Objectif ' + (i + 1))}</option>`).join('');
+    sel.value = camInfo.deviceId || ''; sel.dataset.n = cams.length;
+  } else sel.dataset.n = 0;
   analysisHandler = setupAnalysis;
+  clearInterval(fileScanTimer);
+  if (source.kind === 'file') {
+    // vidéo à l'arrêt : on analyse l'image affichée
+    fileScanTimer = setInterval(() => {
+      if (!setupState.active) { clearInterval(fileScanTimer); return; }
+      const g = grabScan(); if (g) rimAuto.addScanFrame(g);
+      if (rimAuto.takeChange() && rimAuto.rim) onRimFound(rimAuto.rim, rimAuto.source);
+    }, 60);
+  }
   renderSetup();
 }
 function closeSetup() {
-  setupState.active = false; analysisHandler = null; showMask = false;
+  setupState.active = false; analysisHandler = null; showMask = false; clearInterval(fileScanTimer);
   $('#setupUI').hidden = true; $('#loupe').hidden = true;
 }
-$('#camSelect').addEventListener('change', async e => {
-  store.setSetting('deviceId', e.target.value); closeCamera();
-  try { await ensureCamera(); tracker.reset(); applyTrackerSettings(); } catch (err) { toast('Impossible de changer de caméra'); }
-});
+function onRimFound(rim, src) {
+  const st = setupState; if (!st.active || st.step !== 'scan') return;
+  const first = !st.rim;
+  st.rim = rim; st.src = src;
+  tracker.setRim(rim); tracker.softReset();
+  st.hl = { x: rim.xl, y: rim.y }; st.hr = { x: rim.xr, y: rim.y };
+  if (first) {
+    sfx.tick();
+    if (S_().voice && !st.announced) say('Panier trouvé', { interrupt: true });
+    st.announced = true;
+    // départ automatique après 3 s si une séance attend (annulable)
+    if (st.after) st.goAt = performance.now() + 3200;
+  }
+  renderSetup();
+}
+// rafraîchissement de l'écran de réglage (compte à rebours, aide si rien n'est trouvé)
+setInterval(() => {
+  const st = setupState; if (!st.active || st.step !== 'scan') return;
+  if (st.goAt && performance.now() >= st.goAt) { st.goAt = 0; finishSetup(); return; }
+  renderSetup();
+}, 250);
 
-const STEPS = {
-  frame: ['1 / 4', 'Placer le téléphone', "À l'horizontale, de côté, posé ou sur trépied. Le cercle d'un côté de l'image, ta zone de tir de l'autre, et au moins 2 m d'image au-dessus du cercle. Choisis l'ultra grand-angle si tout ne rentre pas."],
-  rim: ['2 / 4', 'Repérer le cercle', "Fais glisser les deux poignées sur les bords gauche et droit du cercle (l'avant du cercle). Une loupe apparaît sous ton doigt."],
-  ball: ['3 / 4', 'Couleur du ballon', "Tiens ton ballon immobile dans l'image et touche-le à l'écran. Si tu passes cette étape, l'appli garde un orange standard."],
-  test: ['4 / 4', "Tirs d'essai", "Fais 2 ou 3 tirs. Chaque tir détecté s'affiche avec sa trajectoire. Si rien n'est détecté, active « Voir la détection » : le ballon doit apparaître en rouge."],
-  check: ['', 'Vérifier le réglage', "La ligne orange doit être posée sur le cercle. Si le téléphone a bougé, refais le réglage."],
-};
 function renderSetup() {
-  const st = setupState.step, [no, title, text] = STEPS[st];
-  $('#setupStepNo').textContent = no ? 'Réglage ' + no : ''; $('#setupTitle').textContent = title; $('#setupText').textContent = text;
-  $('#camSelect').hidden = st !== 'frame';
-  $('#hL').hidden = $('#hR').hidden = st !== 'rim';
-  $('#swatch').hidden = st !== 'ball' || !setupState.ball;
-  if (setupState.ball) $('#swatch').style.background = `hsl(${setupState.ball.h} ${Math.round(setupState.ball.s * 100)}% ${Math.round(setupState.ball.v * 50)}%)`;
-  $('#maskToggleWrap').hidden = st !== 'test' && st !== 'check';
-  $('#testCount').hidden = st !== 'test';
-  $('#testCount').textContent = `${setupState.test.n} tir(s) détecté(s) · ${setupState.test.m} rentré(s)`;
-  const alt = $('#setupAlt'), next = $('#setupNext');
-  alt.hidden = !(st === 'ball' || st === 'check');
-  alt.textContent = st === 'ball' ? 'Orange standard' : 'Refaire le réglage';
-  next.textContent = st === 'test' ? 'Terminer' : st === 'check' ? "C'est aligné" : (st === 'ball' && setupState.mode === 'file') ? 'Analyser la vidéo' : 'Suivant';
-  if (st === 'rim') placeHandles();
-  showMask = $('#maskToggle').checked && (st === 'test' || st === 'check');
+  const st = setupState, scan = st.step === 'scan';
+  const elapsed = (performance.now() - st.startedAt) / 1000;
+  let title, text, label, state;
+  if (!scan) {
+    title = 'Placer le cercle à la main';
+    text = "Fais glisser les deux poignées sur les bords gauche et droit de l'avant du cercle. Une loupe apparaît sous ton doigt.";
+  } else if (st.rim) {
+    title = st.src === 'image' ? 'Panier trouvé' : 'Panier trouvé et confirmé';
+    text = st.after ? 'Vérifie que le cadre orange est bien sur le cercle. Tes premiers tirs affineront le réglage.' : 'Le cadre orange doit être sur le cercle. Fais un ou deux tirs pour vérifier.';
+    label = st.src === 'image' ? 'Panier repéré' : st.src === 'tirs' ? 'Repéré grâce à tes tirs' : 'Confirmé par tes tirs';
+    if (st.shots) label += ` · ${st.shots} tir${st.shots > 1 ? 's' : ''} vu${st.shots > 1 ? 's' : ''}, ${st.made} rentré${st.made > 1 ? 's' : ''}`;
+    state = 'ok';
+  } else {
+    title = source.kind === 'file' ? 'Recherche du panier dans la vidéo' : 'Pose le téléphone, je trouve le panier';
+    text = source.facing === 'user' && source.kind === 'camera'
+      ? "Caméra avant : écran tourné vers toi, téléphone à l'horizontale, le panier bien visible."
+      : "À l'horizontale, de côté, le panier visible avec de l'espace au-dessus. Pas besoin de toucher l'écran.";
+    if (elapsed > 7) {
+      text = source.kind === 'file' ? 'Je ne trouve pas le cercle sur cette image. Place-le à la main.'
+        : "Je ne le vois pas encore. Tu peux commencer à tirer : 2 ou 3 tirs suffisent pour que je le repère avec la trajectoire du ballon. Sinon, évite le contre-jour ou place-le à la main.";
+      label = rimAuto.shots ? `Analyse de tes tirs… (${rimAuto.shots})` : 'Toujours en recherche…';
+      state = 'wait';
+    } else { label = 'Recherche du panier…'; state = 'scan'; }
+  }
+  $('#setupTitle').textContent = title; $('#setupText').textContent = text;
+  const ss = $('#scanStatus'); ss.hidden = !scan; ss.dataset.state = state || ''; $('#scanLabel').textContent = label || '';
+  $('#flipCam').hidden = source.kind !== 'camera' || !scan;
+  $('#camSelect').hidden = !scan || source.kind !== 'camera' || source.facing === 'user' || +($('#camSelect').dataset.n || 0) < 2;
+  $('#hL').hidden = $('#hR').hidden = scan;
+  $('#setupManual').textContent = scan ? 'Placer à la main' : 'Repérage auto';
+  $('#setupManual').classList.toggle('pulse', scan && !st.rim && elapsed > 7);
+  $('#setupOther').hidden = !scan || !st.rim || st.src !== 'image' || rimAuto.candidates.length < 2;
+  const next = $('#setupNext');
+  const ready = !scan || st.rim || st.saved;
+  next.disabled = !ready;
+  const left = st.goAt ? Math.max(0, Math.ceil((st.goAt - performance.now()) / 1000)) : 0;
+  next.textContent = !scan ? 'Valider' : st.mode === 'recal' ? 'Reprendre' : !st.after ? 'Terminer' : left ? `C'est parti · ${left}` : (!st.rim && st.saved) ? 'Garder le dernier réglage' : "C'est parti";
+  if (!scan) placeHandles();
 }
 function placeHandles() {
-  const R = videoRect(video);
   for (const [id, h] of [['#hL', setupState.hl], ['#hR', setupState.hr]]) {
-    const el = $(id); el.style.left = (R.left + h.x * R.width) + 'px'; el.style.top = (R.top + h.y * R.height) + 'px';
+    const [x, y] = toScreen(h.x, h.y); const el = $(id); el.style.left = x + 'px'; el.style.top = y + 'px';
   }
 }
-window.addEventListener('resize', () => { if (setupState.active && setupState.step === 'rim') placeHandles(); });
+window.addEventListener('resize', () => { if (setupState.active && setupState.step === 'manual') placeHandles(); });
 
-// poignées + loupe
+// poignées + loupe (secours)
 for (const id of ['#hL', '#hR']) {
   const el = $(id), key = id === '#hL' ? 'hl' : 'hr';
   el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); moveHandle(e, key); });
@@ -317,8 +497,8 @@ for (const id of ['#hL', '#hR']) {
   el.addEventListener('pointercancel', () => { $('#loupe').hidden = true; });
 }
 function moveHandle(e, key) {
-  const R = videoRect(video);
-  const x = Math.min(1, Math.max(0, (e.clientX - R.left) / R.width)), y = Math.min(1, Math.max(0, (e.clientY - R.top) / R.height));
+  let [x, y] = fromScreen(e.clientX, e.clientY);
+  x = Math.min(1, Math.max(0, x)); y = Math.min(1, Math.max(0, y));
   setupState[key] = { x, y }; placeHandles();
   // loupe : zoom x4 au-dessus du doigt
   const L = $('#loupe'), lc = L.getContext('2d'), vw = video.videoWidth, vh = video.videoHeight;
@@ -326,73 +506,65 @@ function moveHandle(e, key) {
   L.hidden = false; L.style.left = Math.min(window.innerWidth - 160, Math.max(10, e.clientX - 75)) + 'px';
   L.style.top = Math.max(10, e.clientY - 200) + 'px';
   lc.fillStyle = '#000'; lc.fillRect(0, 0, 150, 150);
+  lc.save(); if (isMirror()) { lc.translate(150, 0); lc.scale(-1, 1); }
   try { lc.drawImage(video, x * vw - span / 2, y * vh - span / 2, span, span, 0, 0, 150, 150); } catch (err) {}
+  lc.restore();
   lc.strokeStyle = '#F07E33'; lc.lineWidth = 2; lc.beginPath(); lc.moveTo(75, 0); lc.lineTo(75, 150); lc.moveTo(0, 75); lc.lineTo(150, 75); lc.stroke();
 }
 
-// toucher le ballon (étape 3)
-$('#stage').addEventListener('pointerdown', e => {
-  if (!setupState.active || setupState.step !== 'ball' || e.target.closest('button, select, label, .handle')) return;
-  const R = videoRect(video);
-  const x = (e.clientX - R.left) / R.width, y = (e.clientY - R.top) / R.height;
-  if (x < 0 || x > 1 || y < 0 || y > 1) return;
-  setupState.samples = []; setupState.sampling = { x, y, n: 12 };
-  $('#setupText').textContent = 'Analyse de la couleur… garde le ballon immobile.';
-});
 function setupAnalysis(img, t, out) {
   const st = setupState;
-  if (st.step === 'ball' && st.sampling) {
-    const c = tracker.sampleColor(img, st.sampling.x, st.sampling.y);
-    if (c) st.samples.push(c);
-    if (--st.sampling.n <= 0) {
-      st.sampling = null;
-      if (st.samples.length < 4) { toast("Je ne vois pas de couleur nette à cet endroit. Touche le centre du ballon."); renderSetup(); return; }
-      const med = a => a.sort((p, q) => p - q)[a.length >> 1];
-      const c2 = { h: med(st.samples.map(s => s.h)), s: med(st.samples.map(s => s.s)), v: med(st.samples.map(s => s.v)) };
-      if (!(c2.h <= 45 || c2.h >= 345) || c2.s < 0.35) { toast("Cette couleur ne ressemble pas à un ballon orange. Réessaie sur le ballon, ou garde l'orange standard.", 4500); renderSetup(); return; }
-      st.ball = c2; tracker.setBallColor(c2); sfx.tick(); renderSetup();
-      $('#setupText').textContent = 'Couleur enregistrée. Tu peux toucher à nouveau pour recommencer, ou passer à la suite.';
-    }
-  }
-  if ((st.step === 'test' || st.step === 'check') && out.events.length) {
+  if (st.step === 'scan' && out.events.length) {
     for (const ev of out.events) {
-      st.test.n++; if (ev.made) st.test.m++;
+      st.shots++; if (ev.made) st.made++;
       lastShotPath = ev.path; lastShotMade = ev.made; lastShotT = performance.now();
       ev.made ? sfx.made() : sfx.miss();
     }
     renderSetup();
   }
 }
-$('#maskToggle').addEventListener('change', e => { showMask = e.target.checked; });
-$('#setupClose').addEventListener('click', () => { closeSetup(); closeCamera(); $('#stage').hidden = true; keepAwake(false); go(view === 'summary' ? 'home' : view); });
-$('#setupAlt').addEventListener('click', () => {
-  if (setupState.step === 'ball') { setupState.ball = null; tracker.setBallColor({ h: 20, s: 0.62, v: 0.55 }); if (setupState.mode === 'file') { $('#setupNext').click(); return; } setupState.step = 'test'; tracker.reset(); applyTrackerRimFromHandles(); renderSetup(); }
-  else if (setupState.step === 'check') { setupState.step = 'frame'; renderSetup(); }
+$('#setupClose').addEventListener('click', () => {
+  const recal = setupState.mode === 'recal';
+  closeSetup();
+  if (recal) { resumeAfterRecal(); return; }
+  closeCamera(); $('#stage').hidden = true; keepAwake(false); go(view === 'summary' ? 'home' : view);
 });
-function applyTrackerRimFromHandles() { tracker.setRim(handlesRim()); }
-$('#setupNext').addEventListener('click', () => {
-  unlock();
-  const st = setupState;
-  if (st.step === 'frame') { st.step = 'rim'; }
-  else if (st.step === 'rim') {
-    const r = handlesRim();
-    if (r.xr - r.xl < 0.015) { toast('Écarte les deux poignées : une sur chaque bord du cercle.'); return; }
-    applyTrackerRimFromHandles(); st.step = 'ball';
-  }
-  else if (st.step === 'ball' && st.mode === 'file') {
-    store.setCalib({ ...(store.state.calib || {}), rim: handlesRim(), ball: st.ball, aspect: video.videoWidth / video.videoHeight, savedAt: Date.now(), fromFile: true });
-    applyTrackerSettings(); const after = st.after; closeSetup(); if (after) after(); return;
-  }
-  else if (st.step === 'ball') { st.step = 'test'; tracker.reset(); applyTrackerRimFromHandles(); }
-  else if (st.step === 'test') {
-    store.setCalib({ rim: handlesRim(), ball: st.ball, aspect: video.videoWidth / video.videoHeight, deviceId: camInfo && camInfo.deviceId, savedAt: Date.now() });
-    applyTrackerSettings(); const after = st.after; closeSetup(); toast('Réglage enregistré');
-    if (after) after(); else { closeCamera(); $('#stage').hidden = true; go('settings'); }
-    return;
-  }
-  else if (st.step === 'check') { const after = st.after; closeSetup(); if (after) after(); return; }
+$('#setupManual').addEventListener('click', () => {
+  unlock(); const st = setupState; st.goAt = 0;
+  if (st.step === 'manual') { st.step = 'scan'; renderSetup(); return; }
+  st.step = 'manual';
+  const r = st.rim || st.saved; if (r) { st.hl = { x: r.xl, y: r.y }; st.hr = { x: r.xr, y: r.y }; }
   renderSetup();
 });
+$('#setupOther').addEventListener('click', () => {
+  unlock(); const st = setupState; st.goAt = 0;
+  rimAuto.rejectCurrent();
+  if (rimAuto.takeChange() && rimAuto.rim) { st.rim = null; onRimFound(rimAuto.rim, rimAuto.source); st.goAt = 0; renderSetup(); }
+});
+$('#flipCam').addEventListener('click', async () => {
+  unlock();
+  source = { ...source, facing: source.facing === 'user' ? 'environment' : 'user' };
+  store.setSetting('facing', source.facing);
+  closeCamera();
+  try { await openSetup(setupState.after, setupState.mode); } catch (e) { toast('Impossible de changer de caméra'); }
+});
+$('#camSelect').addEventListener('change', async e => {
+  store.setSetting('deviceId', e.target.value); closeCamera();
+  try { await openSetup(setupState.after, setupState.mode); } catch (err) { toast("Impossible de changer d'objectif"); }
+});
+function finishSetup() {
+  const st = setupState;
+  const rim = st.step === 'manual' ? handlesRim() : (st.rim || st.saved);
+  if (!rim) return;
+  if (st.step === 'manual' && rim.xr - rim.xl < 0.015) { toast('Écarte les deux poignées : une sur chaque bord du cercle.'); return; }
+  saveCalib(rim, st.step === 'manual' ? 'main' : st.src || 'dernier');
+  applyTrackerSettings();
+  const after = st.after, mode = st.mode; closeSetup();
+  if (mode === 'recal') { toast('Panier recalé'); resumeAfterRecal(); return; }
+  if (after) after();
+  else { toast('Réglage enregistré'); closeCamera(); $('#stage').hidden = true; keepAwake(false); go('settings'); }
+}
+$('#setupNext').addEventListener('click', () => { unlock(); finishSetup(); });
 
 // ======================= séance en direct =======================
 let S = null;                   // séance en cours
@@ -426,14 +598,13 @@ function resumeDraft() { S = store.state.draft; if (!S) return; if (S.type === '
 
 async function enterLive(mode) {
   askPersistence(); clips = []; processor = 'shot';
-  source = S.type === 'video' ? source : { kind: 'camera', url: null, facing: 'environment' };
+  source = S.type === 'video' ? source : { kind: 'camera', url: null, facing: S_().facing || 'environment' };
   $('#stage').hidden = false; $('#liveUI').hidden = true; $('#setupUI').hidden = true;
   $('#stage').classList.toggle('manual-mode', mode !== 'camera');
   keepAwake(true);
   if (S.type === 'video') { closeCamera(); await openSetup(startLiveUI, 'file'); return; }
   if (mode === 'camera') {
-    const c = store.state.calib;
-    await openSetup(startLiveUI, c && !c.fromFile ? 'check' : 'full');
+    await openSetup(startLiveUI, 'full');
   } else {
     closeCamera(); startLiveUI();
   }
@@ -441,7 +612,7 @@ async function enterLive(mode) {
 function startLiveUI() {
   $('#setupUI').hidden = true; $('#liveUI').hidden = false;
   const c = store.state.calib;
-  $('#liveUI').classList.toggle('rim-left', !!(c && S.mode === 'camera' && (c.rim.xl + c.rim.xr) / 2 < 0.5));
+  $('#liveUI').classList.toggle('rim-left', !!(c && S.mode === 'camera' && (isMirror() ? 1 - (c.rim.xl + c.rim.xr) / 2 : (c.rim.xl + c.rim.xr) / 2) < 0.5));
   analysisHandler = S.mode === 'camera' ? liveAnalysis : null;
   tracker.reset(); applyTrackerSettings();
   showMask = false;
@@ -639,6 +810,7 @@ $('#liveMenu').addEventListener('click', () => {
   if (phase === 'paused') return;
   pausedPhase = phase; pausedRemaining = phaseEndsAt ? phaseEndsAt - performance.now() : 0; phase = 'paused';
   try { speechSynthesis.cancel(); } catch (e) {}
+  $('#pmRecal').hidden = !(S && S.mode === 'camera' && S.type !== 'video');
   $('#pauseMenu').hidden = false;
 });
 $('#pmResume').addEventListener('click', () => {
@@ -655,6 +827,17 @@ $('#pmSkipEx').addEventListener('click', () => {
   if (S.ei + 1 >= S.exercises.length) { finishSession(); return; }
   S.ei++; S.si = 0; persist(); showReady();
 });
+$('#pmRecal').addEventListener('click', () => {
+  $('#pauseMenu').hidden = true; $('#liveUI').hidden = true; analysisHandler = null;
+  openSetup(null, 'recal');
+});
+function resumeAfterRecal() {
+  $('#setupUI').hidden = true; $('#liveUI').hidden = false;
+  analysisHandler = liveAnalysis; tracker.reset(); applyTrackerSettings();
+  phase = pausedPhase || 'ready';
+  if (phaseEndsAt) phaseEndsAt = performance.now() + pausedRemaining;
+  if (phase === 'ready') showReady(); else renderLive();
+}
 $('#pmFinish').addEventListener('click', () => { $('#pauseMenu').hidden = true; finishSession(); });
 
 function finishSession() {
@@ -732,6 +915,22 @@ function renderSummary() {
   $('#sumEyebrow').textContent = `Bilan · ${frDate(S.date)}`;
   $('#sumBody').innerHTML = sessionHTML(S, true);
   $('#sumNote').value = S.note || '';
+  // en-tête : le chiffre qui compte, comparé à la fois précédente
+  const st = sessStats(S), prev = store.state.sessions.filter(x => x.type !== 'dribble' && x.id !== S.id).sort((a, b) => b.startedAt - a.startedAt);
+  const same = prev.find(x => (S.week && x.week === S.week && x.seance === S.seance) || (!S.week && x.title === S.title)) || prev[0];
+  const ps = same ? sessStats(same) : null;
+  const d = ps && ps.att && st.pct != null ? st.pct - ps.pct : null;
+  const best = prev.filter(x => sessStats(x).att >= 20).reduce((m, x) => Math.max(m, sessStats(x).pct || 0), 0);
+  const record = st.att >= 20 && prev.length && st.pct > best;
+  const C = 2 * Math.PI * 52, f = Math.max(0, Math.min(1, (st.pct || 0) / 100));
+  const goal = S_().weeklyGoal || 3, ws = weekStart(), days = new Set([...store.state.sessions.map(x => x.date), S.date]);
+  let nWeek = 0; for (let i = 0; i < 7; i++) if (days.has(isoDay(new Date(ws.getTime() + i * DAY)))) nWeek++;
+  const word = st.att === 0 ? '' : record ? 'Record personnel !' : d != null && d >= 5 ? 'Grosse progression' : d != null && d > 0 ? 'En progrès' : st.pct >= 60 ? 'Très bonne séance' : d != null && d < -5 ? 'Séance difficile, ça arrive' : 'Séance faite';
+  $('#sumHero').innerHTML = st.att ? `<div class="sh-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="tr"/><circle cx="60" cy="60" r="52" class="pr" style="stroke-dasharray:${C};stroke-dashoffset:${C * (1 - f)}"/></svg><div><b>${num(st.pct, 0)}<small>%</small></b><span>${st.made}/${st.att}</span></div></div>
+    <div class="sh-main"><div class="sh-word ${record ? 'rec' : ''}">${word}</div>
+    ${d != null ? `<div class="sh-delta ${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${num(d, 0)} pts <small>vs ${same.week ? 'la même séance' : 'la dernière fois'} (${num(ps.pct, 0)} %)</small></div>` : '<div class="sh-delta">Première référence : la prochaine fois, tu sauras si tu progresses.</div>'}
+    ${st.angle != null ? `<div class="sh-line">Angle d'entrée moyen <b>${num(st.angle, 0)}°</b> ${st.angle >= TARGETS.angle[0] && st.angle <= TARGETS.angle[1] ? '· dans la cible' : `· cible ${TARGETS.angle[0]}–${TARGETS.angle[1]}°`}</div>` : ''}
+    <div class="sh-line">Semaine : <b>${Math.min(nWeek, 7)}/${goal}</b> séances${nWeek >= goal ? ' · objectif tenu' : ''}</div></div>` : '';
 }
 $('#sumBody').addEventListener('click', e => {
   if (e.target.closest('#openClips')) { openClipViewer(null); return; }
@@ -844,9 +1043,33 @@ function renderSettings() {
   $('#setTol').value = s.hueTol; $('#tolVal').textContent = s.hueTol + '°';
   $('#setUrl').value = s.sheetUrl; $('#setKey').value = s.sheetKey;
   const c = store.state.calib;
-  $('#calibInfo').textContent = c ? `Dernier réglage : ${new Date(c.savedAt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}${c.ball ? ', couleur du ballon calibrée' : ', orange standard'}.` : 'Aucun réglage pour le moment : il sera demandé au premier démarrage avec la caméra.';
+  $('#calibInfo').textContent = c ? `Dernier repérage : ${new Date(c.savedAt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })} (${({ image: 'image', 'image+tirs': 'image et tirs', tirs: 'tirs', main: 'à la main' })[c.auto] || 'auto'}).` : '';
+  $$('#facingSeg [data-facing]').forEach(b => b.setAttribute('aria-pressed', String((S_().facing || 'environment') === b.dataset.facing)));
   $('#ver').textContent = VERSION;
+  $('#setGoal').value = String(S_().weeklyGoal || 3);
+  const rd = S_().remindDays || [1, 3, 5];
+  $('#remindDays').innerHTML = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map((n, i) => `<button class="chip ${rd.includes(i + 1) ? 'on' : ''}" data-rd="${i + 1}">${n}</button>`).join('');
+  $('#remindTime').value = S_().remindTime || '18:30';
 }
+$('#setGoal').addEventListener('change', e => store.setSetting('weeklyGoal', +e.target.value));
+$('#remindDays').addEventListener('click', e => {
+  const b = e.target.closest('[data-rd]'); if (!b) return;
+  const d = +b.dataset.rd; let rd = [...(S_().remindDays || [1, 3, 5])];
+  rd = rd.includes(d) ? rd.filter(x => x !== d) : [...rd, d].sort(); store.setSetting('remindDays', rd); b.classList.toggle('on');
+});
+$('#remindTime').addEventListener('change', e => store.setSetting('remindTime', e.target.value));
+$('#remindBtn').addEventListener('click', () => {
+  const rd = S_().remindDays || [1, 3, 5]; if (!rd.length) { toast('Choisis au moins un jour'); return; }
+  const [hh, mm] = (S_().remindTime || '18:30').split(':').map(Number);
+  const by = rd.map(d => ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'][d - 1]).join(',');
+  const start = new Date(); start.setHours(hh, mm, 0, 0); start.setDate(start.getDate() + 1);
+  const p2 = n => String(n).padStart(2, '0');
+  const dt = d => `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}T${p2(d.getHours())}${p2(d.getMinutes())}00`;
+  const end = new Date(start.getTime() + 60 * 6e4);
+  const url = location.href.split('#')[0];
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ShotPro Live//FR', 'BEGIN:VEVENT', `UID:shotpro-${Date.now()}@shotpro`, `DTSTAMP:${dt(new Date())}`, `DTSTART:${dt(start)}`, `DTEND:${dt(end)}`, `RRULE:FREQ=WEEKLY;BYDAY=${by}`, 'SUMMARY:ShotPro · séance de tir', `DESCRIPTION:Ouvre ShotPro Live et lance la séance du jour. ${url}`, `URL:${url}`, 'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', 'DESCRIPTION:Séance de tir dans 15 min', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' })); a.download = 'shotpro-rappels.ics'; document.body.appendChild(a); a.click(); a.remove();
+});
 const bindCheck = (id, key) => $(id).addEventListener('change', e => store.setSetting(key, e.target.checked));
 bindCheck('#setVoice', 'voice'); bindCheck('#setBeeps', 'beeps'); bindCheck('#setSayEach', 'sayEachShot');
 $('#setRest').addEventListener('change', e => store.setSetting('rest', +e.target.value));
@@ -855,7 +1078,8 @@ $('#setThr').addEventListener('input', e => { store.setSetting('motionThr', +e.t
 $('#setTol').addEventListener('input', e => { store.setSetting('hueTol', +e.target.value); $('#tolVal').textContent = e.target.value + '°'; });
 $('#setUrl').addEventListener('change', e => store.setSetting('sheetUrl', e.target.value.trim()));
 $('#setKey').addEventListener('change', e => store.setSetting('sheetKey', e.target.value.trim()));
-$('#openSetup').addEventListener('click', () => { unlock(); keepAwake(true); openSetup(null, 'full'); });
+$('#openSetup').addEventListener('click', () => { unlock(); keepAwake(true); source = { kind: 'camera', url: null, facing: S_().facing || 'environment' }; processor = 'shot'; openSetup(null, 'full'); });
+$$('#facingSeg [data-facing]').forEach(b => b.addEventListener('click', () => { store.setSetting('facing', b.dataset.facing); $$('#facingSeg [data-facing]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); }));
 $('#testSheet').addEventListener('click', async () => {
   store.setSetting('sheetUrl', $('#setUrl').value.trim()); store.setSetting('sheetKey', $('#setKey').value.trim());
   $('#sheetMsg').textContent = 'Test en cours…';
@@ -1148,4 +1372,15 @@ $('#dsDiscard').addEventListener('click', () => { D = null; go('dribble'); });
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 go('home');
 doSync();
-window.__shotpro = { tracker, store, get S() { return S; }, get phase() { return phase; }, get D() { return D; }, get dphase() { return dphase; }, get clips() { return clips; } }; // pour les tests
+// premier lancement : 3 écrans pour comprendre en 10 secondes
+let obI = 0;
+function obShow(i) {
+  obI = i; $('#obSlides').style.transform = `translateX(${-100 * i}%)`;
+  $$('#obDots i').forEach((d, k) => d.classList.toggle('on', k === i));
+  $('#obNext').textContent = i === 2 ? 'Commencer' : 'Suivant';
+}
+function obDone() { store.setSetting('onboarded', true); $('#onboard').hidden = true; }
+if (!S_().onboarded && !store.state.sessions.length && !new URLSearchParams(location.search).has('noob')) { $('#onboard').hidden = false; obShow(0); }
+$('#obNext').addEventListener('click', () => { if (obI < 2) obShow(obI + 1); else obDone(); });
+$('#obSkip').addEventListener('click', obDone);
+window.__shotpro = { rimAuto, tracker, store, get S() { return S; }, get phase() { return phase; }, get D() { return D; }, get dphase() { return dphase; }, get clips() { return clips; } }; // pour les tests

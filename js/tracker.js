@@ -78,6 +78,7 @@ export function createTracker(options = {}) {
 
   function setRim(r) { // r : {xl, xr, y} normalisés (0-1)
     rimNorm = r;
+    if (!r) { rim = null; return; }
     if (!W) return;
     const xl = Math.min(r.xl, r.xr) * W, xr = Math.max(r.xl, r.xr) * W, y = r.y * H;
     rim = { xl, xr, y, cx: (xl + xr) / 2, half: (xr - xl) / 2, w: xr - xl };

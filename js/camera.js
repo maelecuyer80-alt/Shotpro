@@ -65,12 +65,22 @@ export function frameLoop(video, onFrame) {
 }
 
 // Correspondance entre coordonnées normalisées de l'image et l'élément affiché (object-fit: contain).
+// Image affichée en plein écran (object-fit: cover) : on rogne au plus 30 % de l'image ;
+// au-delà (téléphone tenu dans le mauvais sens), on affiche toute l'image pour ne pas cacher le panier.
+export function videoFit(video) {
+  const r = video.getBoundingClientRect();
+  const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
+  const sCover = Math.max(r.width / vw, r.height / vh), sContain = Math.min(r.width / vw, r.height / vh);
+  return 1 - sContain / sCover <= 0.3 ? 'cover' : 'contain';
+}
 export function videoRect(video) {
   const r = video.getBoundingClientRect();
   const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
-  const s = Math.min(r.width / vw, r.height / vh);
+  const fit = videoFit(video);
+  if (video.style.objectFit !== fit) video.style.objectFit = fit;
+  const s = fit === 'cover' ? Math.max(r.width / vw, r.height / vh) : Math.min(r.width / vw, r.height / vh);
   const w = vw * s, h = vh * s;
-  return { left: r.left + (r.width - w) / 2, top: r.top + (r.height - h) / 2, width: w, height: h, el: r };
+  return { left: r.left + (r.width - w) / 2, top: r.top + (r.height - h) / 2, width: w, height: h, el: r, fit };
 }
 
 let wakeLock = null;

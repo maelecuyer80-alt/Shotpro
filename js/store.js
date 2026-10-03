@@ -10,7 +10,7 @@ const DEFAULT_STATE = {
     rest: 45, startDelay: 8,
     sheetUrl: '', sheetKey: '',
     motionThr: 16, hueTol: 17,
-    deviceId: '',
+    deviceId: '', facing: 'environment',
   },
   queue: [],
   badges: {},       // badge:niveau → date de déblocage
