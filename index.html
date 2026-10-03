@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>ShotPro Live</title>
+<meta name="description" content="Suivi de tir en direct pour le programme ShotPro 4 semaines">
+<meta name="theme-color" content="#0E1319">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ShotPro">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Manrope:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- ============ ACCUEIL ============ -->
+<main id="v-home" class="page">
+  <header class="top">
+    <div class="brand">ShotPro <span>Live</span></div>
+    <div class="sync" id="syncState"></div>
+  </header>
+
+  <section id="resumeCard" class="card accent" hidden>
+    <div class="eyebrow">Séance interrompue</div>
+    <div class="h2" id="resumeTitle"></div>
+    <div class="row gap">
+      <button class="btn primary" id="resumeBtn">Reprendre</button>
+      <button class="btn ghost" id="discardBtn">Abandonner</button>
+    </div>
+    <div class="confirm" id="discardConfirm" hidden>
+      <span>La séance en cours sera perdue.</span>
+      <button class="btn danger sm" id="discardYes">Confirmer</button>
+      <button class="btn ghost sm" id="discardNo">Annuler</button>
+    </div>
+  </section>
+
+  <section class="card next">
+    <div class="eyebrow" id="nextEyebrow">Prochaine séance</div>
+    <div class="h1" id="nextTitle">Semaine 1 · Séance 1</div>
+    <div class="muted" id="nextTheme"></div>
+    <ol class="exlist" id="nextList"></ol>
+    <div class="stack">
+      <button class="btn primary big" id="startCam">Démarrer avec la caméra</button>
+      <button class="btn ghost" id="startManual">Démarrer sans caméra (saisie au doigt)</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row between"><div class="h3">Cycle <span id="cycleNo">1</span></div><button class="link" id="newCycle" hidden>Nouveau cycle</button></div>
+    <div class="weekgrid" id="weekGrid"></div>
+    <p class="hint">Touche une séance pour la choisir.</p>
+  </section>
+
+  <section class="card" id="quickStats"></section>
+  <section class="card" id="homeBadges"></section>
+  <section class="card">
+    <div class="h3">Autres entraînements</div>
+    <div class="row gap wrap"><button class="btn ghost" data-go="machine">Machine de renvoi</button><button class="btn ghost" data-go="pro">Défis pros</button><button class="btn ghost" data-go="dribble">Dribble</button></div>
+  </section>
+</main>
+
+<!-- ============ ENTRAÎNER ============ -->
+<main id="v-train" class="page" hidden>
+  <header class="top"><div class="h1">Entraîner</div></header>
+  <div class="traingrid" id="trainList">
+    <button class="tcard" data-train="program"><span class="ticon">◎</span><b>Programme ShotPro</b><small>Le cycle de 4 semaines, séance par séance.</small></button>
+    <button class="tcard" data-train="machine"><span class="ticon">◠</span><b>Machine de renvoi</b><small>Tous les angles, distances et hauteurs de passe.</small></button>
+    <button class="tcard" data-train="pro"><span class="ticon">★</span><b>Défis pros</b><small>Form shooting, Mikan, Beat the Pro, concours à 3 pts…</small></button>
+    <button class="tcard" data-train="dribble"><span class="ticon">●</span><b>Dribble</b><small>Exercices animés, routines guidées, rebonds comptés.</small></button>
+    <button class="tcard" data-train="free"><span class="ticon">∿</span><b>Tir libre</b><small>Caméra en marche, sans objectif : chaque tir est mesuré.</small></button>
+    <label class="tcard" for="videoFile"><span class="ticon">▶</span><b>Analyser une vidéo</b><small>Une vidéo filmée avec l'appareil photo, analysée tir par tir.</small></label>
+    <input type="file" id="videoFile" accept="video/*" hidden>
+    <button class="tcard" data-train="freeManual"><span class="ticon">✎</span><b>Tir libre au doigt</b><small>Sans caméra, avec les gros boutons.</small></button>
+  </div>
+</main>
+
+<!-- ============ MACHINE ============ -->
+<main id="v-machine" class="page" hidden>
+  <header class="top"><button class="link back" data-go="train">‹ Entraîner</button></header>
+  <div><div class="eyebrow">Machine de renvoi</div><div class="h1">Programmes machine</div>
+    <p class="muted">Chaque position indique le réglage de la machine : angle (0° = coin gauche, 90° = axe, 180° = coin droit), distance, hauteur et cadence de passe. Adapte si ta machine numérote les angles autrement.</p></div>
+  <label class="sw"><input type="checkbox" id="mManual"> <span>Compter au doigt (sans caméra)</span></label>
+  <p class="hint">La caméra de côté juge très bien les tirs à peu près perpendiculaires à son axe. Pour les positions face à elle ou dos à elle, déplace le téléphone ou corrige au doigt.</p>
+  <div class="stack" id="presetList"></div>
+  <section class="card">
+    <div class="h2">Séance sur mesure</div>
+    <div class="h3">Angles</div><div class="chips" id="mAngles"></div>
+    <div class="h3">Distances</div><div class="chips" id="mDists"></div>
+    <div class="h3">Hauteurs de passe</div><div class="chips" id="mHeights"></div><p class="hint" id="mHeightHint"></p>
+    <div class="row gap wrap"><label class="field"><span>Tirs par position</span><input type="number" id="mPer" min="1" max="50" inputmode="numeric" class="num"></label>
+    <label class="field"><span>Une passe toutes les (s)</span><input type="number" id="mInt" min="1" max="10" step="0.5" inputmode="decimal" class="num"></label></div>
+    <label class="sw"><input type="checkbox" id="mShuffle"> <span>Ordre aléatoire</span></label>
+    <div id="mPreview"></div>
+    <p class="muted" id="mSummary"></p>
+    <button class="btn primary big" id="mStart">Lancer cette séance</button>
+  </section>
+</main>
+
+<!-- ============ DÉFIS PROS ============ -->
+<main id="v-pro" class="page" hidden>
+  <header class="top"><button class="link back" data-go="train">‹ Entraîner</button></header>
+  <div><div class="eyebrow">Défis pros</div><div class="h1">Entraînements de joueurs pros</div>
+  <p class="muted">Des exercices classiques et des routines inspirées de joueurs professionnels, adaptés au suivi de l'appli. Chacun débloque des badges.</p></div>
+  <div class="stack" id="proList"></div>
+</main>
+
+<!-- ============ DRIBBLE ============ -->
+<main id="v-dribble" class="page" hidden>
+  <header class="top"><button class="link back" data-go="train">‹ Entraîner</button></header>
+  <div><div class="eyebrow">Dribble</div><div class="h1">Travail de dribble</div>
+  <p class="muted">Pose le téléphone au sol ou sur un banc, face à toi, à 2 – 3 m, l'écran tourné vers toi : la caméra frontale compte tes rebonds, main droite et main gauche.</p></div>
+  <label class="sw"><input type="checkbox" id="dCam" checked> <span>Compter les rebonds avec la caméra</span></label>
+  <div class="h3">Routines guidées</div>
+  <div class="stack" id="routineList"></div>
+  <div class="h3">Exercices et démonstrations</div>
+  <div class="stack" id="drillList"></div>
+</main>
+
+<main id="v-dsummary" class="page" hidden>
+  <header class="top" style="display:grid;gap:4px"><div class="eyebrow">Bilan dribble</div><div class="h1" id="dsTitle"></div></header>
+  <div id="dsBody"></div>
+  <section class="card"><label class="field col"><span>Note perso</span><textarea id="dsNote" rows="2"></textarea></label>
+  <button class="btn primary big" id="dsSave">Enregistrer</button><button class="btn ghost" id="dsDiscard">Ne pas enregistrer</button></section>
+</main>
+
+<!-- ============ BADGES ============ -->
+<main id="v-badges" class="page" hidden>
+  <header class="top"><div class="h1">Badges</div><div class="muted" id="badgeCount"></div></header>
+  <p class="muted">Bronze, argent, or : chaque badge suit une compétence. Ils se débloquent tout seuls à l'enregistrement des séances.</p>
+  <div id="badgeBody" class="stack"></div>
+</main>
+
+<!-- ============ HISTORIQUE ============ -->
+<main id="v-history" class="page" hidden>
+  <header class="top"><button class="link back" data-go="progress">‹ Progrès</button><div class="h1" style="width:100%">Historique</div></header>
+  <div id="histList" class="stack"></div>
+</main>
+
+<main id="v-detail" class="page" hidden>
+  <header class="top"><button class="link back" data-go="history">‹ Historique</button></header>
+  <div id="detailBody"></div>
+</main>
+
+<!-- ============ PROGRÈS ============ -->
+<main id="v-progress" class="page" hidden>
+  <header class="top"><div class="h1">Progrès</div><button class="btn ghost sm" data-go="history">Historique</button></header>
+  <div class="muted" id="progCycle"></div>
+  <div class="card"><div class="tablebox"><table class="tbl" id="progTable"></table></div></div>
+  <div class="card"><div class="h3">Réussite par semaine</div><svg id="progChart" viewBox="0 0 340 180" role="img" aria-label="Réussite par semaine"></svg></div>
+  <div class="card"><div class="h3">Angle d'entrée moyen par séance</div><svg id="angleChart" viewBox="0 0 340 180" role="img" aria-label="Angle d'entrée par séance"></svg>
+    <p class="hint">Bande verte : 43 à 47°, le repère couramment cité par les systèmes de suivi de tir.</p></div>
+  <div class="verdict" id="verdict"></div>
+  <div class="card" id="progMachine" hidden><div class="h3">Carte des tirs à la machine</div><div id="progMachineSvg"></div></div>
+  <div class="card" id="progDribble" hidden><div class="h3">Records de dribble</div><div class="tablebox"><table class="tbl" id="progDribbleTbl"></table></div></div>
+</main>
+
+<!-- ============ RÉGLAGES ============ -->
+<main id="v-settings" class="page" hidden>
+  <header class="top"><div class="h1">Réglages</div></header>
+
+  <section class="card">
+    <div class="h3">Caméra</div>
+    <button class="btn ghost" id="openSetup">Refaire le réglage caméra</button>
+    <p class="hint" id="calibInfo"></p>
+  </section>
+
+  <section class="card">
+    <div class="h3">Pendant la séance</div>
+    <label class="sw"><input type="checkbox" id="setVoice"> <span>Annonces vocales</span></label>
+    <label class="sw"><input type="checkbox" id="setBeeps"> <span>Sons rentré / raté</span></label>
+    <label class="sw"><input type="checkbox" id="setSayEach"> <span>Annoncer le score après chaque tir</span></label>
+    <label class="field"><span>Repos entre séries</span><select id="setRest"><option value="20">20 s</option><option value="30">30 s</option><option value="45">45 s</option><option value="60">60 s</option><option value="90">90 s</option></select></label>
+    <label class="field"><span>Délai avant le départ</span><select id="setDelay"><option value="5">5 s</option><option value="8">8 s</option><option value="12">12 s</option><option value="15">15 s</option></select></label>
+  </section>
+
+  <section class="card">
+    <div class="h3">Détection</div>
+    <label class="field col"><span>Sensibilité au mouvement <b id="thrVal"></b></span><input type="range" id="setThr" min="8" max="30" step="1"><small class="hint">Plus bas : détecte un ballon peu contrasté, mais réagit davantage aux variations de lumière.</small></label>
+    <label class="field col"><span>Tolérance de couleur <b id="tolVal"></b></span><input type="range" id="setTol" min="8" max="30" step="1"></label>
+  </section>
+
+  <section class="card">
+    <div class="h3">Google Sheet</div>
+    <p class="hint">Chaque séance enregistrée s'ajoute au journal de ton Sheet, avec le détail de chaque tir dans un onglet « Tirs ». Le guide d'installation explique comment obtenir l'adresse et la clé.</p>
+    <label class="field col"><span>Adresse du script</span><input type="url" id="setUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <label class="field col"><span>Clé</span><input type="text" id="setKey" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <div class="row gap"><button class="btn ghost" id="testSheet">Tester la connexion</button><button class="btn ghost" id="syncNow">Synchroniser</button></div>
+    <p class="hint" id="sheetMsg"></p>
+  </section>
+
+  <section class="card">
+    <div class="h3">Sauvegarde</div>
+    <div class="row gap wrap"><button class="btn ghost" id="exportBtn">Exporter mes données</button>
+    <label class="btn ghost" for="importFile">Importer</label><input type="file" id="importFile" accept="application/json,.json" hidden></div>
+    <p class="hint">Tes données sont gardées sur cet iPhone. Installe l'appli sur l'écran d'accueil pour que Safari ne les efface pas, et exporte de temps en temps.</p>
+    <button class="btn danger ghost" id="wipeBtn">Effacer toutes les séances</button>
+    <div class="confirm" id="wipeConfirm" hidden><span>Toutes les séances de cet iPhone seront supprimées.</span><button class="btn danger sm" id="wipeYes">Effacer</button><button class="btn ghost sm" id="wipeNo">Annuler</button></div>
+  </section>
+
+  <section class="card">
+    <div class="h3">Bien filmer</div>
+    <ul class="tips">
+      <li>Téléphone <b>à l'horizontale</b>, posé ou sur trépied, à 1 m – 1,5 m du sol.</li>
+      <li>Filme <b>de côté</b> : la ligne tireur–panier traverse l'image de gauche à droite.</li>
+      <li>Laisse <b>au moins 2 m d'image au-dessus du cercle</b> pour voir toute la courbe.</li>
+      <li>Évite le contre-jour (fenêtre derrière le panier) et les ballons qui traînent dans l'image.</li>
+      <li>Ne bouge plus le téléphone après le réglage. S'il bouge, refais le réglage (30 secondes).</li>
+    </ul>
+  </section>
+  <p class="hint center">ShotPro Live · v<span id="ver"></span></p>
+</main>
+
+<nav class="tabs" id="tabs">
+  <button data-go="home" aria-current="page"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18M5.6 5.6c3.5 3.5 3.5 9.3 0 12.8M18.4 5.6c-3.5 3.5-3.5 9.3 0 12.8"/></svg>Séance</button>
+  <button data-go="train"><svg viewBox="0 0 24 24"><path d="M4 20c3-9 13-9 16 0M7 9a5 5 0 0 1 10 0"/><circle cx="12" cy="5" r="1.6"/></svg>Entraîner</button>
+  <button data-go="badges"><svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="6"/><path d="M8.5 14l-2 7 5.5-3 5.5 3-2-7"/></svg>Badges</button>
+  <button data-go="progress"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Progrès</button>
+  <button data-go="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Réglages</button>
+</nav>
+
+<!-- ============ CAMÉRA : RÉGLAGE + SÉANCE (plein écran) ============ -->
+<div id="stage" class="stage" hidden>
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="overlay"></canvas>
+  <canvas id="loupe" class="loupe" width="150" height="150" hidden></canvas>
+
+  <!-- Réglage -->
+  <div id="setupUI" class="setup" hidden>
+    <div class="sbar">
+      <button class="iconbtn" id="setupClose" aria-label="Fermer">✕</button>
+      <div class="sstep"><div class="eyebrow" id="setupStepNo"></div><div class="stitle" id="setupTitle"></div><div class="stext" id="setupText"></div></div>
+    </div>
+    <div class="handle" id="hL" hidden><i></i></div>
+    <div class="handle" id="hR" hidden><i></i></div>
+    <div class="sfoot">
+      <select id="camSelect" class="camsel" hidden></select>
+      <div class="swatch" id="swatch" hidden></div>
+      <label class="sw dark" id="maskToggleWrap" hidden><input type="checkbox" id="maskToggle"> <span>Voir la détection</span></label>
+      <div class="testcount" id="testCount" hidden></div>
+      <button class="btn ghost dark" id="setupAlt" hidden></button>
+      <button class="btn primary" id="setupNext">Suivant</button>
+    </div>
+  </div>
+
+  <!-- Dribble -->
+  <div id="dribbleUI" class="live dribble" hidden>
+    <div class="lhead">
+      <button class="iconbtn" id="dStop" aria-label="Terminer">✕</button>
+      <div class="lex"><div class="lexname" id="dName"></div><div class="lexsub" id="dSub2"></div></div>
+      <div class="lclock" id="dClock"></div>
+    </div>
+    <div class="dscore"><div class="bigscore" id="dCount">0</div><div class="lplan">rebonds · <span id="dRate">0</span>/s</div><div class="lexsub" id="dLR"></div></div>
+    <canvas id="dDemo" class="ddemo" aria-label="Démonstration animée"></canvas>
+    <div class="center-msg" id="dCenter" hidden><div class="cm-big" id="dBig"></div><div class="cm-sub" id="dSub"></div><button class="btn primary big" id="dBtn" hidden></button></div>
+  </div>
+
+  <!-- Séance -->
+  <div id="liveUI" class="live" hidden>
+    <div class="lhead">
+      <button class="iconbtn" id="liveMenu" aria-label="Pause">❚❚</button>
+      <div class="lex"><div class="lexname" id="lExName"></div><div class="lexsub" id="lExSub"></div></div>
+      <div class="lclock" id="lClock"></div>
+    </div>
+    <div class="lscore">
+      <div class="bigscore"><span id="lMade">0</span><small>/</small><span id="lAtt">0</span></div>
+      <div class="lplan" id="lPlan"></div>
+      <div class="dots" id="lDots"></div>
+    </div>
+    <div class="lmetrics" id="lMetrics"></div>
+    <div class="flash" id="flash"></div>
+    <div class="center-msg" id="centerMsg" hidden><div class="cm-big" id="cmBig"></div><div class="cm-sub" id="cmSub"></div><button class="btn primary big" id="cmBtn" hidden></button><button class="btn ghost dark" id="cmBtn2" hidden></button></div>
+    <div class="lfoot">
+      <button class="btn made" id="addMade">+ Rentré</button>
+      <button class="btn miss" id="addMiss">+ Raté</button>
+      <button class="btn ghost dark sm" id="flipLast" title="Inverser le dernier tir">⇄</button>
+      <button class="btn ghost dark sm" id="undoLast" title="Supprimer le dernier tir">↺</button>
+    </div>
+    <div class="pausemenu" id="pauseMenu" hidden>
+      <div class="pm-card">
+        <div class="h2">Pause</div>
+        <button class="btn primary big" id="pmResume">Reprendre</button>
+        <button class="btn ghost dark" id="pmSkipSeries">Passer à la série suivante</button>
+        <button class="btn ghost dark" id="pmSkipEx">Passer à l'exercice suivant</button>
+        <button class="btn ghost dark" id="pmFinish">Terminer la séance</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RALENTIS ============ -->
+<div class="viewer" id="clipViewer" hidden>
+  <div class="vcard">
+    <div class="row between"><div><div class="h3" id="cvTitle"></div><div class="muted" id="cvInfo"></div></div><button class="iconbtn" id="cvClose" aria-label="Fermer">✕</button></div>
+    <canvas id="cvCanvas"></canvas>
+    <div class="row between gap"><button class="btn ghost sm" id="cvPrev">‹ Précédent</button><span class="muted" id="cvPos"></span><button class="btn ghost sm" id="cvSpeed">Ralenti</button><button class="btn ghost sm" id="cvNext">Suivant ›</button></div>
+  </div>
+</div>
+
+<!-- ============ BILAN ============ -->
+<main id="v-summary" class="page" hidden>
+  <header class="top" style="display:grid;gap:4px"><div class="eyebrow" id="sumEyebrow">Bilan</div><div class="h1" id="sumTitle"></div></header>
+  <div id="sumBody"></div>
+  <section class="card">
+    <label class="field col"><span>Note perso</span><textarea id="sumNote" rows="3" placeholder="Sensations, fatigue, ce que tu veux corriger…"></textarea></label>
+    <button class="btn primary big" id="sumSave">Enregistrer la séance</button>
+  </section>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
