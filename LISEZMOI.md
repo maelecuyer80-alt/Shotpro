@@ -1,4 +1,4 @@
-# ShotPro Live 2.0 : mise en ligne et installation
+# ShotPro Live 2.1 : mise en ligne et installation
 
 ## Ce que contient l'appli
 
@@ -49,13 +49,16 @@ Si tu avais déjà installé le script de la version 1 : remplace son code par l
 - Téléphone **à l'horizontale**, posé ou sur un petit trépied, à 1 m – 1,5 m du sol, **de côté** par rapport à la ligne tireur–panier, à 4 – 6 m.
 - Dans l'image : le cercle d'un côté, ta zone de tir de l'autre, et **au moins 2 m au-dessus du cercle** pour voir toute la courbe. L'ultra grand-angle (0,5×) aide si tout ne rentre pas.
 - Évite le contre-jour et les autres ballons dans l'image.
-- Le réglage (4 étapes, 1 minute) n'est à refaire que si le téléphone bouge.
+- **Plus de réglage** : touche « C'est parti », pose le téléphone, l'appli cherche le panier (balayage orange), l'encadre et dit « Panier trouvé ». La séance démarre seule 3 secondes plus tard.
+- **Caméra avant ou arrière** : bouton appareil photo en haut à droite (ou Réglages > Caméra). Avant : tu vois ton score de loin. Arrière : meilleure image et choix de l'ultra grand-angle.
+- Si elle encadre autre chose : **« Autre panier »**. Si elle ne trouve rien après quelques secondes, commence simplement à tirer : 2 ou 3 tirs suffisent pour qu'elle repère le cercle avec la trajectoire. En dernier recours, « Placer à la main ».
+- Tes premiers tirs confirment et affinent la position, et si le téléphone bouge pendant la séance, l'appli se recale toute seule (ou Pause > « Recaler le panier »).
 - Pendant la séance, tout est mains libres : l'appli annonce le départ, compte les tirs, enchaîne repos et séries. Si elle se trompe sur un tir, ⇄ inverse le dernier tir et ↺ le supprime.
 
 ## Dribble
 
-Pose le téléphone au sol ou sur un banc, **face à toi**, à 2 – 3 m, écran tourné vers toi : la caméra frontale voit le ballon toucher le sol. Fais d'abord le réglage caméra du tir (étape « couleur du ballon ») : la couleur apprise sert aussi au dribble.
+Pose le téléphone au sol ou sur un banc, **face à toi**, à 2 – 3 m, écran tourné vers toi : la caméra frontale voit le ballon toucher le sol. Le ballon orange standard est reconnu sans réglage.
 
 ## Mettre à jour l'appli
 
-Remplace les fichiers dans GitHub (même méthode qu'à l'étape 1). L'iPhone récupère la nouvelle version au lancement suivant, avec le réseau.
+Remplace les fichiers dans GitHub (même méthode qu'à l'étape 1 : glisse tout le contenu du dossier, en écrasant les anciens fichiers, y compris les nouveaux `js/rimfinder.js` et `js/rimauto.js`). L'iPhone récupère la nouvelle version au lancement suivant, avec le réseau.

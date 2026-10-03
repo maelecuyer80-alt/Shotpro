@@ -1,6 +1,6 @@
 // Hors ligne : l'appli fonctionne au gymnase même sans réseau.
-const CACHE = 'shotpro-live-v2.0.0';
-const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/tracker.js', 'js/program.js', 'js/store.js', 'js/audio.js', 'js/camera.js', 'js/machine.js', 'js/dribble.js', 'js/clips.js', 'js/badges.js',
+const CACHE = 'shotpro-live-v2.1.0';
+const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/tracker.js', 'js/rimfinder.js', 'js/rimauto.js', 'js/program.js', 'js/store.js', 'js/audio.js', 'js/camera.js', 'js/machine.js', 'js/dribble.js', 'js/clips.js', 'js/badges.js',
   'manifest.webmanifest', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

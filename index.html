@@ -41,29 +41,35 @@
     </div>
   </section>
 
-  <section class="card next">
-    <div class="eyebrow" id="nextEyebrow">Prochaine séance</div>
-    <div class="h1" id="nextTitle">Semaine 1 · Séance 1</div>
-    <div class="muted" id="nextTheme"></div>
-    <ol class="exlist" id="nextList"></ol>
-    <div class="stack">
-      <button class="btn primary big" id="startCam">Démarrer avec la caméra</button>
-      <button class="btn ghost" id="startManual">Démarrer sans caméra (saisie au doigt)</button>
-    </div>
+  <section class="hero" id="hero">
+    <div class="hero-top"><span class="eyebrow" id="nextEyebrow">Séance du jour</span><span class="hero-time" id="nextTime"></span></div>
+    <div class="hero-title" id="nextTitle">Semaine 1 · Séance 1</div>
+    <div class="hero-theme" id="nextTheme"></div>
+    <div class="hero-chips" id="nextChips"></div>
+    <div class="hero-goal" id="nextGoal" hidden></div>
+    <button class="btn primary huge" id="startCam"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span>C'est parti</span></button>
+    <div class="hero-sub"><button class="link" id="startManual">Sans caméra (saisie au doigt)</button><button class="link" id="toggleList">Voir le détail</button></div>
+    <ol class="exlist" id="nextList" hidden></ol>
   </section>
 
-  <section class="card">
-    <div class="row between"><div class="h3">Cycle <span id="cycleNo">1</span></div><button class="link" id="newCycle" hidden>Nouveau cycle</button></div>
-    <div class="weekgrid" id="weekGrid"></div>
-    <p class="hint">Touche une séance pour la choisir.</p>
+  <section class="card week" id="weekCard"></section>
+
+  <section class="card challenge" id="challengeCard" hidden></section>
+
+  <section class="card install" id="installCard" hidden>
+    <div class="row between"><div class="h3">Installe ShotPro sur ton iPhone</div><button class="link" id="installClose" aria-label="Masquer">✕</button></div>
+    <p class="muted">Dans Safari : bouton <b>Partager</b> <span class="ishare">⬆︎</span> puis <b>Sur l'écran d'accueil</b>. L'appli s'ouvre alors en plein écran, sans barre, et Safari ne peut plus effacer tes séances.</p>
   </section>
 
   <section class="card" id="quickStats"></section>
+
+  <details class="card fold" id="cycleFold">
+    <summary><span class="h3">Programme · cycle <span id="cycleNo">1</span></span><span class="muted" id="cycleSum"></span></summary>
+    <div class="weekgrid" id="weekGrid"></div>
+    <div class="row between"><p class="hint">Touche une séance pour la choisir.</p><button class="link" id="newCycle" hidden>Nouveau cycle</button></div>
+  </details>
+
   <section class="card" id="homeBadges"></section>
-  <section class="card">
-    <div class="h3">Autres entraînements</div>
-    <div class="row gap wrap"><button class="btn ghost" data-go="machine">Machine de renvoi</button><button class="btn ghost" data-go="pro">Défis pros</button><button class="btn ghost" data-go="dribble">Dribble</button></div>
-  </section>
 </main>
 
 <!-- ============ ENTRAÎNER ============ -->
@@ -167,8 +173,19 @@
 
   <section class="card">
     <div class="h3">Caméra</div>
-    <button class="btn ghost" id="openSetup">Refaire le réglage caméra</button>
+    <p class="hint">Le panier est repéré automatiquement à chaque séance : pose le téléphone, l'appli trouve le cercle, tes premiers tirs confirment. Rien à régler.</p>
+    <div class="seg" id="facingSeg"><button data-facing="environment">Caméra arrière</button><button data-facing="user">Caméra avant (tu vois l'écran)</button></div>
+    <button class="btn ghost" id="openSetup">Tester le repérage du panier</button>
     <p class="hint" id="calibInfo"></p>
+  </section>
+
+  <section class="card" id="remindCard">
+    <div class="h3">Objectif et rappels</div>
+    <label class="field"><span>Séances par semaine</span><select id="setGoal"><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select></label>
+    <div class="chips" id="remindDays"></div>
+    <label class="field"><span>Heure</span><input type="time" id="remindTime" value="18:30"></label>
+    <button class="btn ghost" id="remindBtn">Ajouter les rappels à mon calendrier</button>
+    <p class="hint">Crée un rendez-vous chaque semaine aux jours choisis, avec une alerte 15 min avant. Sur iPhone, ouvre le fichier puis touche « Ajouter tout ».</p>
   </section>
 
   <section class="card">
@@ -211,7 +228,8 @@
       <li>Filme <b>de côté</b> : la ligne tireur–panier traverse l'image de gauche à droite.</li>
       <li>Laisse <b>au moins 2 m d'image au-dessus du cercle</b> pour voir toute la courbe.</li>
       <li>Évite le contre-jour (fenêtre derrière le panier) et les ballons qui traînent dans l'image.</li>
-      <li>Ne bouge plus le téléphone après le réglage. S'il bouge, refais le réglage (30 secondes).</li>
+      <li>Si le téléphone bouge, l'appli se recale toute seule en quelques tirs. Tu peux aussi le faire depuis la pause : « Recaler le panier ».</li>
+      <li><b>Caméra avant</b> : pratique pour voir ton score de loin. <b>Arrière</b> : meilleure image, et choix de l'ultra grand-angle.</li>
     </ul>
   </section>
   <p class="hint center">ShotPro Live · v<span id="ver"></span></p>
@@ -226,26 +244,45 @@
 </nav>
 
 <!-- ============ CAMÉRA : RÉGLAGE + SÉANCE (plein écran) ============ -->
+<div class="onboard" id="onboard" hidden>
+  <div class="ob-card">
+    <div class="ob-slides" id="obSlides">
+      <div class="ob-slide"><div class="ob-art">
+        <svg viewBox="0 0 200 120"><rect x="20" y="40" width="44" height="26" rx="4" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="42" cy="53" r="6" fill="none" stroke="currentColor" stroke-width="3"/><path d="M42 66v30M30 96h24" stroke="currentColor" stroke-width="3"/><path d="M150 30v60" stroke="currentColor" stroke-width="3"/><ellipse cx="132" cy="52" rx="16" ry="4" fill="none" stroke="#F07E33" stroke-width="4"/><path d="M118 54l6 18h16l6-18" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".6"/></svg></div>
+        <div class="h2">Pose ton téléphone</div><p class="muted">À l'horizontale, de côté, le panier dans l'image. Caméra avant pour voir ton score, arrière pour la meilleure image.</p></div>
+      <div class="ob-slide"><div class="ob-art">
+        <svg viewBox="0 0 200 120"><rect x="40" y="18" width="120" height="84" rx="10" fill="none" stroke="currentColor" stroke-width="3"/><ellipse cx="118" cy="56" rx="18" ry="5" fill="none" stroke="#F07E33" stroke-width="4"/><path d="M92 40h-6v6M144 40h6v6M92 72h-6v-6M144 72h6v-6" fill="none" stroke="#F07E33" stroke-width="3"/><path d="M50 92h100" stroke="#3FB984" stroke-width="3" stroke-dasharray="4 4"/></svg></div>
+        <div class="h2">Il trouve le panier</div><p class="muted">Aucun réglage : l'appli repère le cercle toute seule, et tes premiers tirs confirment sa position.</p></div>
+      <div class="ob-slide"><div class="ob-art">
+        <svg viewBox="0 0 200 120"><path d="M30 100Q90 -10 140 58" fill="none" stroke="#3FB984" stroke-width="4"/><circle cx="30" cy="100" r="7" fill="#F07E33"/><ellipse cx="146" cy="60" rx="16" ry="4" fill="none" stroke="#F07E33" stroke-width="4"/><text x="150" y="30" fill="currentColor" font-family="Barlow Condensed, sans-serif" font-weight="800" font-size="26">46°</text></svg></div>
+        <div class="h2">Tire, il compte tout</div><p class="muted">Paniers, angle d'entrée, hauteur, distance. Les annonces vocales te guident série par série, ton Google Sheet se remplit tout seul.</p></div>
+    </div>
+    <div class="ob-dots" id="obDots"><i class="on"></i><i></i><i></i></div>
+    <div class="row between"><button class="link" id="obSkip">Passer</button><button class="btn primary" id="obNext">Suivant</button></div>
+  </div>
+</div>
+
 <div id="stage" class="stage" hidden>
   <video id="video" playsinline muted autoplay></video>
   <canvas id="overlay"></canvas>
   <canvas id="loupe" class="loupe" width="150" height="150" hidden></canvas>
+  <div class="rotatehint" id="rotateHint" hidden><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M20 14a8 8 0 0 1-6 6M18 20h-4v-4"/></svg>Tourne le téléphone à l'horizontale : toute la trajectoire sera visible</div>
 
   <!-- Réglage -->
   <div id="setupUI" class="setup" hidden>
     <div class="sbar">
       <button class="iconbtn" id="setupClose" aria-label="Fermer">✕</button>
-      <div class="sstep"><div class="eyebrow" id="setupStepNo"></div><div class="stitle" id="setupTitle"></div><div class="stext" id="setupText"></div></div>
+      <div class="sstep"><div class="stitle" id="setupTitle"></div><div class="stext" id="setupText"></div></div>
+      <button class="iconbtn flip" id="flipCam" aria-label="Caméra avant ou arrière"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M9.5 13.5a2.5 2.5 0 0 0 4.6 1.3M14.5 12.5a2.5 2.5 0 0 0-4.6-1.3"/><path d="M14.6 15.6l-.5-.8.9-.3M9.4 10.4l.5.8-.9.3"/></svg></button>
     </div>
+    <div class="scanstatus" id="scanStatus"><span class="sdot"></span><span id="scanLabel">Recherche du panier…</span></div>
     <div class="handle" id="hL" hidden><i></i></div>
     <div class="handle" id="hR" hidden><i></i></div>
     <div class="sfoot">
-      <select id="camSelect" class="camsel" hidden></select>
-      <div class="swatch" id="swatch" hidden></div>
-      <label class="sw dark" id="maskToggleWrap" hidden><input type="checkbox" id="maskToggle"> <span>Voir la détection</span></label>
-      <div class="testcount" id="testCount" hidden></div>
-      <button class="btn ghost dark" id="setupAlt" hidden></button>
-      <button class="btn primary" id="setupNext">Suivant</button>
+      <select id="camSelect" class="camsel" hidden aria-label="Objectif"></select>
+      <button class="btn ghost dark" id="setupManual">Placer à la main</button>
+      <button class="btn ghost dark" id="setupOther" hidden>Autre panier</button>
+      <button class="btn primary" id="setupNext" disabled>C'est parti</button>
     </div>
   </div>
 
@@ -288,6 +325,7 @@
         <button class="btn primary big" id="pmResume">Reprendre</button>
         <button class="btn ghost dark" id="pmSkipSeries">Passer à la série suivante</button>
         <button class="btn ghost dark" id="pmSkipEx">Passer à l'exercice suivant</button>
+        <button class="btn ghost dark" id="pmRecal">Recaler le panier</button>
         <button class="btn ghost dark" id="pmFinish">Terminer la séance</button>
       </div>
     </div>
@@ -306,6 +344,7 @@
 <!-- ============ BILAN ============ -->
 <main id="v-summary" class="page" hidden>
   <header class="top" style="display:grid;gap:4px"><div class="eyebrow" id="sumEyebrow">Bilan</div><div class="h1" id="sumTitle"></div></header>
+  <section class="sumhero" id="sumHero"></section>
   <div id="sumBody"></div>
   <section class="card">
     <label class="field col"><span>Note perso</span><textarea id="sumNote" rows="3" placeholder="Sensations, fatigue, ce que tu veux corriger…"></textarea></label>
